@@ -9,6 +9,26 @@ import os
 import shutil
 import gmsh
 
+
+class UserFileError(ValueError):
+    """Raised when the uploaded CAD file is invalid."""
+
+
+def _check_not_html(path):
+    """Reject files that are actually downloaded HTML pages."""
+    with open(path, 'rb') as file_obj:
+        header = file_obj.read(256)
+
+    try:
+        text_header = header.decode('ascii', errors='ignore').lower()
+    except Exception:
+        return
+
+    if "<!doctype html" in text_header or "<html" in text_header:
+        raise UserFileError(
+            "The uploaded file is not a valid CAD file. Please upload the original CAD export file."
+        )
+
 def convert_cad_to_stl(input_path, output_path):
     """Convert a CAD file to STL format.
 
@@ -28,28 +48,23 @@ def convert_cad_to_stl(input_path, output_path):
     print(f"[PYTHON CAD] Processing: {input_abs_path}")
 
     if not os.path.exists(input_abs_path):
-        print(f"[PYTHON CAD] CRITICAL ERROR: File not found at {input_abs_path}")
+        print("[PYTHON CAD] ERROR: Input CAD file was not found.")
         sys.exit(1)
 
     # 1. HTML check
     try:
-        with open(input_abs_path, 'rb') as f:
-            header = f.read(80)
-            try:
-                text_header = header.decode('ascii')
-                if "<!DOCTYPE html" in text_header or "<html" in text_header:
-                    print("[PYTHON CAD] CRITICAL ERROR: The file header contains HTML tags.")
-                    raise ValueError("Invalid file format! You uploaded a downloaded WEBPAGE (HTML), not a CAD file.")
-            except UnicodeDecodeError:
-                pass
-    except Exception:
-        pass
+        _check_not_html(input_abs_path)
+    except UserFileError as e:
+        print(f"[PYTHON CAD] ERROR: {e}")
+        sys.exit(1)
 
     # 2. File extension handling
     temp_igs_path = input_abs_path
+    created_temp_copy = False
     if input_abs_path.lower().endswith('.iges'):
-        temp_igs_path = input_abs_path.replace('.iges', '.igs')
+        temp_igs_path = os.path.splitext(input_abs_path)[0] + '.igs'
         shutil.copy2(input_abs_path, temp_igs_path)
+        created_temp_copy = True
 
     try:
         gmsh.initialize()
@@ -71,13 +86,22 @@ def convert_cad_to_stl(input_path, output_path):
         
         # 6. Save
         gmsh.write(output_abs_path)
-        gmsh.finalize()
         print(f"[PYTHON CAD] Success! Exported to {output_abs_path}")
 
-    except Exception as e:
-        print(f"[PYTHON CAD] CRITICAL ERROR: {str(e)}")
-        if gmsh.isInitialized(): gmsh.finalize()
+    except UserFileError as e:
+        print(f"[PYTHON CAD] ERROR: {e}")
         sys.exit(1)
+    except Exception as e:
+        print(f"[PYTHON CAD] ERROR: Could not convert this CAD file. {str(e)}")
+        sys.exit(1)
+    finally:
+        if gmsh.isInitialized():
+            gmsh.finalize()
+        if created_temp_copy and os.path.exists(temp_igs_path):
+            try:
+                os.remove(temp_igs_path)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":

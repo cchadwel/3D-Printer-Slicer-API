@@ -9,7 +9,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { pipeline } = require('node:stream/promises');
 const yauzl = require('yauzl');
-const { MAX_BUILD_VOLUMES, EXTENSIONS } = require('../config/constants');
+const { EXTENSIONS } = require('../config/constants');
 const { OUTPUT_DIR, CONFIGS_DIR } = require('../config/paths');
 const { logError } = require('../utils/logger');
 const { getRate } = require('./pricing.service');
@@ -104,6 +104,28 @@ function openZip(zipPath) {
     });
 }
 
+function sleepMs(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function openZipWithRetry(zipPath, attempts = 5, waitMs = 80) {
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+            return await openZip(zipPath);
+        } catch (error_) {
+            lastError = error_;
+            if (error_?.code !== 'ENOENT' || attempt === attempts) {
+                throw error_;
+            }
+            await sleepMs(waitMs);
+        }
+    }
+
+    throw lastError || new Error(`ZIP_GUARD|Unable to open ZIP file: ${zipPath}`);
+}
+
 /**
  * Detect unsafe ZIP entry names (path traversal / absolute paths).
  * @param {string} entryPath ZIP internal entry name.
@@ -123,7 +145,7 @@ function isUnsafeZipPath(entryPath) {
  * @returns {Promise<string[]>} Candidate entry names matching supported extensions.
  */
 async function inspectZipFile(zipPath, supportedExts) {
-    const zipFile = await openZip(zipPath);
+    const zipFile = await openZipWithRetry(zipPath);
 
     return new Promise((resolve, reject) => {
         let totalUncompressed = 0;
@@ -188,7 +210,7 @@ async function inspectZipFile(zipPath, supportedExts) {
  * @returns {Promise<string>} Extracted file path.
  */
 async function extractZipEntry(zipPath, entryName, destinationPath) {
-    const zipFile = await openZip(zipPath);
+    const zipFile = await openZipWithRetry(zipPath);
 
     return new Promise((resolve, reject) => {
         let extracted = false;
@@ -333,41 +355,51 @@ async function parseOutputDetailed(filePath, technology, layerHeight, knownHeigh
         estimated_price_huf: 0
     };
 
-    if (technology === 'FDM' && fs.existsSync(filePath)) {
-        try {
-            const content = fs.readFileSync(filePath, 'utf8');
-            const m73Match = /M73 P0 R(\d+)/.exec(content);
-            if (m73Match) stats.print_time_seconds = Number.parseInt(m73Match[1], 10) * 60;
-
-            if (stats.print_time_seconds === 0) {
-                const timeMatch = /; estimated printing time = (.*)/i.exec(content);
-                if (timeMatch) {
-                    stats.print_time_readable = timeMatch[1].trim();
-                    stats.print_time_seconds = parseTimeString(stats.print_time_readable);
-                }
-            }
-
-            const filMatch = /; filament used \[mm\] = ([0-9.]+)/i.exec(content);
-            if (filMatch) stats.material_used_m = Number.parseFloat(filMatch[1]) / 1000;
-        } catch (e) {
-            console.error('[PARSER ERROR]', e.message);
-        }
-    }
-
-    if (technology === 'SLA' && stats.print_time_seconds === 0 && stats.object_height_mm > 0) {
-        const totalLayers = Math.ceil(stats.object_height_mm / Math.max(Number.parseFloat(layerHeight), 0.025));
-        const secondsPerLayer = 11;
-        const baseTime = 120;
-        stats.print_time_seconds = baseTime + (totalLayers * secondsPerLayer);
-    }
-
-    if (stats.print_time_seconds > 0) {
-        const h = Math.floor(stats.print_time_seconds / 3600);
-        const m = Math.floor((stats.print_time_seconds % 3600) / 60);
-        stats.print_time_readable = `${h}h ${m}m ${technology === 'SLA' ? '(Est.)' : ''}`;
-    }
+    parseFdmOutputStats(stats, technology, filePath);
+    applySlaEstimateIfNeeded(stats, technology, layerHeight);
+    finalizeReadableTime(stats, technology);
 
     return stats;
+}
+
+function parseFdmOutputStats(stats, technology, filePath) {
+    if (technology !== 'FDM' || !fs.existsSync(filePath)) return;
+
+    try {
+        const content = fs.readFileSync(filePath, 'utf8');
+        const m73Match = /M73 P0 R(\d+)/.exec(content);
+        if (m73Match) stats.print_time_seconds = Number.parseInt(m73Match[1], 10) * 60;
+
+        if (stats.print_time_seconds === 0) {
+            const timeMatch = /; estimated printing time = (.*)/i.exec(content);
+            if (timeMatch) {
+                stats.print_time_readable = timeMatch[1].trim();
+                stats.print_time_seconds = parseTimeString(stats.print_time_readable);
+            }
+        }
+
+        const filMatch = /; filament used \[mm\] = ([0-9.]+)/i.exec(content);
+        if (filMatch) stats.material_used_m = Number.parseFloat(filMatch[1]) / 1000;
+    } catch (error_) {
+        console.error('[PARSER ERROR]', error_.message);
+    }
+}
+
+function applySlaEstimateIfNeeded(stats, technology, layerHeight) {
+    if (technology !== 'SLA' || stats.print_time_seconds > 0 || stats.object_height_mm <= 0) return;
+
+    const totalLayers = Math.ceil(stats.object_height_mm / Math.max(Number.parseFloat(layerHeight), 0.025));
+    const secondsPerLayer = 11;
+    const baseTime = 120;
+    stats.print_time_seconds = baseTime + (totalLayers * secondsPerLayer);
+}
+
+function finalizeReadableTime(stats, technology) {
+    if (stats.print_time_seconds <= 0) return;
+
+    const h = Math.floor(stats.print_time_seconds / 3600);
+    const m = Math.floor((stats.print_time_seconds % 3600) / 60);
+    stats.print_time_readable = `${h}h ${m}m ${technology === 'SLA' ? '(Est.)' : ''}`;
 }
 
 function normalizeLayerHeight(layerHeightRaw) {
@@ -430,10 +462,235 @@ function isSourceGeometryError(err) {
         'conversion failed',
         'cannot identify image file',
         'failed to load path geometry',
-        'no 2d geometry found'
+        'no 2d geometry found',
+        'could not be parsed into closed shapes',
+        'contains open curves/paths',
+        'contains invalid shapes',
+        'not supported or is corrupted',
+        'impossible to mesh periodic surface',
+        'invalid file'
     ];
 
     return failedConverter && geometryHints.some((hint) => combined.includes(hint));
+}
+
+/**
+ * Detect ZIP input archive errors that should be returned as user-facing 400.
+ * @param {{message?: string, stderr?: string}} err Error object from processing.
+ * @returns {boolean} True when error indicates invalid archive input.
+ */
+function isZipInputError(err) {
+    const combined = `${err?.message || ''}\n${err?.stderr || ''}`.toLowerCase();
+    return (
+        combined.includes('zip_guard|') ||
+        combined.includes('zip does not contain a supported') ||
+        combined.includes('encrypted zip files are not supported') ||
+        combined.includes('zip contains unsafe file paths') ||
+        combined.includes('zip contains too many files') ||
+        combined.includes('zip extracted size exceeds allowed limit') ||
+        (combined.includes('enoent') && combined.includes('.zip'))
+    );
+}
+
+function isProcessingTimeoutError(err) {
+    const combined = `${err?.message || ''}\n${err?.stderr || ''}`.toLowerCase();
+    return (
+        combined.includes('timed out after 10 minutes') ||
+        combined.includes('etimedout') ||
+        err?.killed === true
+    );
+}
+
+function resolveExistingZipPath(zipPath) {
+    if (fs.existsSync(zipPath)) return zipPath;
+
+    if (zipPath.toLowerCase().endsWith('.zip')) {
+        const withoutExt = zipPath.slice(0, -4);
+        if (fs.existsSync(withoutExt)) return withoutExt;
+    } else {
+        const withExt = `${zipPath}.zip`;
+        if (fs.existsSync(withExt)) return withExt;
+    }
+
+    throw new Error(`ZIP_GUARD|Uploaded ZIP file is not accessible at runtime: ${zipPath}`);
+}
+
+function parseSliceOptions(req, forcedTechnology) {
+    const layerHeight = normalizeLayerHeight(req.body.layerHeight || '0.2');
+    if (!layerHeight) {
+        return {
+            isValid: false,
+            response: {
+                success: false,
+                error: 'Invalid layerHeight value.',
+                errorCode: 'INVALID_LAYER_HEIGHT'
+            }
+        };
+    }
+
+    const material = req.body.material || 'PLA';
+    const depth = Number.parseFloat(req.body.depth || '2.0');
+
+    let infillRaw = Number.parseInt(req.body.infill, 10);
+    if (Number.isNaN(infillRaw)) infillRaw = 20;
+    infillRaw = Math.max(0, Math.min(100, infillRaw));
+    const infillPercentage = `${infillRaw}%`;
+
+    const technology = forcedTechnology || (layerHeight <= 0.05 ? 'SLA' : 'FDM');
+    if (forcedTechnology && !validateLayerHeightForTechnology(forcedTechnology, layerHeight)) {
+        const allowedMessage = forcedTechnology === 'SLA' ? '0.025, 0.05' : '0.1, 0.2, 0.3';
+        return {
+            isValid: false,
+            response: {
+                success: false,
+                error: `Invalid layerHeight for ${forcedTechnology}. Allowed values: ${allowedMessage}`,
+                errorCode: 'INVALID_LAYER_HEIGHT_FOR_TECHNOLOGY'
+            }
+        };
+    }
+
+    return {
+        isValid: true,
+        options: {
+            layerHeight,
+            material,
+            depth,
+            infillPercentage,
+            technology
+        }
+    };
+}
+
+async function extractFirstSupportedFromZip(inputFile, filesCleanupList) {
+    console.log('[INFO] Extracting ZIP...');
+    const zipPath = resolveExistingZipPath(inputFile);
+
+    const unzipDir = path.join(path.dirname(inputFile), `unzip_${Date.now()}`);
+    if (!fs.existsSync(unzipDir)) fs.mkdirSync(unzipDir);
+
+    filesCleanupList.push(unzipDir);
+    const supportedExts = new Set([...EXTENSIONS.direct, ...EXTENSIONS.cad, ...EXTENSIONS.image, ...EXTENSIONS.vector]);
+
+    const zipCandidates = await inspectZipFile(zipPath, supportedExts);
+    const selectedEntry = zipCandidates[0];
+    if (!selectedEntry) throw new Error('ZIP does not contain a supported 3D/Image/Vector file.');
+
+    const selectedName = path.basename(selectedEntry);
+    const extractedPath = path.join(unzipDir, selectedName);
+    await extractZipEntry(zipPath, selectedEntry, extractedPath);
+
+    const extractedFiles = fs.readdirSync(unzipDir);
+    const foundFile = extractedFiles.find((f) => supportedExts.has(path.extname(f).toLowerCase()));
+    if (!foundFile) throw new Error('ZIP does not contain a supported 3D/Image/Vector file.');
+
+    console.log(`[INFO] Found in ZIP: ${foundFile}`);
+    return path.join(unzipDir, foundFile);
+}
+
+async function convertInputToStl(processableFile, depth, filesCleanupList) {
+    const currentExt = path.extname(processableFile).toLowerCase();
+    let finalStlPath = processableFile;
+
+    if (EXTENSIONS.image.includes(currentExt)) {
+        console.log(`[INFO] Converting Image to STL (Depth: ${depth}mm)...`);
+        finalStlPath = processableFile + '.stl';
+        filesCleanupList.push(finalStlPath);
+        await runCommand(`python3 img2stl.py "${processableFile}" "${finalStlPath}" ${depth}`);
+    } else if (EXTENSIONS.vector.includes(currentExt)) {
+        console.log(`[INFO] Converting Vector to STL (Depth: ${depth}mm)...`);
+        finalStlPath = processableFile + '.stl';
+        filesCleanupList.push(finalStlPath);
+        await runCommand(`python3 vector2stl.py "${processableFile}" "${finalStlPath}" ${depth}`);
+    } else if (['.obj', '.3mf', '.ply'].includes(currentExt)) {
+        console.log('[INFO] Converting Mesh to STL...');
+        finalStlPath = processableFile + '.stl';
+        filesCleanupList.push(finalStlPath);
+        await runCommand(`python3 mesh2stl.py "${processableFile}" "${finalStlPath}"`);
+    } else if (EXTENSIONS.cad.includes(currentExt)) {
+        console.log('[INFO] Converting CAD to STL...');
+        finalStlPath = processableFile + '.stl';
+        filesCleanupList.push(finalStlPath);
+        await runCommand(`python3 cad2stl.py "${processableFile}" "${finalStlPath}"`);
+    }
+
+    return finalStlPath;
+}
+
+async function tryOptimizeOrientation(processableFile, technology, filesCleanupList) {
+    console.log(`[INFO] Optimizing orientation for ${technology}...`);
+    const orientedStlPath = processableFile.replace('.stl', '_oriented.stl');
+
+    try {
+        await runCommand(`python3 orient.py "${processableFile}" "${orientedStlPath}" ${technology}`);
+        if (fs.existsSync(orientedStlPath)) {
+            filesCleanupList.push(orientedStlPath);
+            return orientedStlPath;
+        }
+    } catch (error_) {
+        console.warn(`[WARN] Orientation optimization failed, proceeding with original. Error: ${error_.message}`);
+    }
+
+    return processableFile;
+}
+
+function buildSlicerCommandArgs(technology, configFile, outputPath, infillPercentage) {
+    let slicerArgs = `--load "${configFile}"`;
+    slicerArgs += ' --center 100,100';
+
+    if (technology === 'SLA') {
+        slicerArgs += ` --export-sla --output "${outputPath}"`;
+    } else {
+        slicerArgs += ' --support-material --support-material-auto';
+        slicerArgs += ` --gcode-flavor marlin --export-gcode --output "${outputPath}" --fill-density ${infillPercentage}`;
+    }
+
+    return slicerArgs;
+}
+
+function handleProcessingError(err, res, filesCleanupList, inputFile) {
+    console.error('[CRITICAL ERROR]', err.message);
+    cleanupFiles(filesCleanupList);
+
+    if (isProcessingTimeoutError(err)) {
+        return res.status(422).json({
+            success: false,
+            error: 'Processing exceeded 10 minutes. The uploaded file may be too complex or invalid for automatic slicing. Please simplify or correct the file and try again.',
+            errorCode: 'FILE_PROCESSING_TIMEOUT'
+        });
+    }
+
+    if (isSourceGeometryError(err)) {
+        return res.status(400).json({
+            success: false,
+            error: 'Uploaded model/image/vector contains invalid or non-printable source data. Automatic repair is disabled to preserve exact model fidelity. Please upload a corrected source file.',
+            errorCode: 'INVALID_SOURCE_GEOMETRY'
+        });
+    }
+
+    if (isZipInputError(err)) {
+        return res.status(400).json({
+            success: false,
+            error: 'Uploaded ZIP file is invalid or does not contain a supported model/image/vector file.',
+            errorCode: 'INVALID_SOURCE_ARCHIVE'
+        });
+    }
+
+    try {
+        logError({
+            message: err.message,
+            stderr: err.stderr,
+            stack: err.stack,
+            path: inputFile
+        });
+    } catch (error_) {
+        console.error(`[LOGGER ERROR] ${error_.message}`);
+    }
+
+    return res.status(500).json({
+        success: false,
+        error: 'Slicing failed. The error has been logged for review.',
+        errorCode: 'INTERNAL_PROCESSING_ERROR'
+    });
 }
 
 /**
@@ -449,124 +706,35 @@ async function processSlice(req, res, forcedTechnology = null) {
     let inputFile = file.path;
     const originalName = file.originalname.toLowerCase();
     const originalExt = path.extname(originalName);
+    const filesCleanupList = [];
 
-    const tempFileWithExt = inputFile + originalExt;
-    fs.renameSync(inputFile, tempFileWithExt);
-    inputFile = tempFileWithExt;
-
-    const filesCleanupList = [inputFile];
-
-    const layerHeight = normalizeLayerHeight(req.body.layerHeight || '0.2');
-    if (!layerHeight) {
-        return res.status(400).json({
-            success: false,
-            error: 'Invalid layerHeight value.',
-            errorCode: 'INVALID_LAYER_HEIGHT'
-        });
-    }
-
-    const material = req.body.material || 'PLA';
-    const depth = Number.parseFloat(req.body.depth || '2.0');
-
-    let infillRaw = Number.parseInt(req.body.infill, 10);
-    if (Number.isNaN(infillRaw)) infillRaw = 20;
-    infillRaw = Math.max(0, Math.min(100, infillRaw));
-    const infillPercentage = `${infillRaw}%`;
-
-    const technology = forcedTechnology || (layerHeight <= 0.05 ? 'SLA' : 'FDM');
-
-    if (forcedTechnology && !validateLayerHeightForTechnology(forcedTechnology, layerHeight)) {
-        const allowedMessage = forcedTechnology === 'SLA' ? '0.025, 0.05' : '0.1, 0.2, 0.3';
-        return res.status(400).json({
-            success: false,
-            error: `Invalid layerHeight for ${forcedTechnology}. Allowed values: ${allowedMessage}`,
-            errorCode: 'INVALID_LAYER_HEIGHT_FOR_TECHNOLOGY'
-        });
-    }
+    const parsedRequest = parseSliceOptions(req, forcedTechnology);
+    if (!parsedRequest.isValid) return res.status(400).json(parsedRequest.response);
+    const {
+        layerHeight,
+        material,
+        depth,
+        infillPercentage,
+        technology
+    } = parsedRequest.options;
 
     console.log(`[INFO] Request: ${originalName} | Tech: ${technology} | Mat: ${material}`);
 
     try {
+        const tempFileWithExt = inputFile + originalExt;
+        fs.renameSync(inputFile, tempFileWithExt);
+        inputFile = tempFileWithExt;
+        filesCleanupList.push(inputFile);
+
         let processableFile = inputFile;
-        let currentExt = path.extname(processableFile).toLowerCase();
-        let finalStlPath = processableFile;
-        let unzipDir = null;
-
-        if (currentExt === '.zip') {
-            console.log('[INFO] Extracting ZIP...');
-            unzipDir = path.join(path.dirname(inputFile), `unzip_${Date.now()}`);
-            if (!fs.existsSync(unzipDir)) fs.mkdirSync(unzipDir);
-
-            filesCleanupList.push(unzipDir);
-            const supportedExts = new Set([...EXTENSIONS.direct, ...EXTENSIONS.cad, ...EXTENSIONS.image, ...EXTENSIONS.vector]);
-
-            const zipCandidates = await inspectZipFile(inputFile, supportedExts);
-            const selectedEntry = zipCandidates[0];
-
-            if (!selectedEntry) throw new Error('ZIP does not contain a supported 3D/Image/Vector file.');
-
-            const selectedName = path.basename(selectedEntry);
-            const extractedPath = path.join(unzipDir, selectedName);
-
-            await extractZipEntry(inputFile, selectedEntry, extractedPath);
-
-            const extractedFiles = fs.readdirSync(unzipDir);
-            const foundFile = extractedFiles.find((f) => supportedExts.has(path.extname(f).toLowerCase()));
-
-            if (!foundFile) throw new Error('ZIP does not contain a supported 3D/Image/Vector file.');
-
-            console.log(`[INFO] Found in ZIP: ${foundFile}`);
-            processableFile = path.join(unzipDir, foundFile);
-            currentExt = path.extname(processableFile).toLowerCase();
+        if (path.extname(processableFile).toLowerCase() === '.zip') {
+            processableFile = await extractFirstSupportedFromZip(inputFile, filesCleanupList);
         }
 
-        if (EXTENSIONS.image.includes(currentExt)) {
-            console.log(`[INFO] Converting Image to STL (Depth: ${depth}mm)...`);
-            finalStlPath = processableFile + '.stl';
-            filesCleanupList.push(finalStlPath);
-            await runCommand(`python3 img2stl.py "${processableFile}" "${finalStlPath}" ${depth}`);
-        } else if (EXTENSIONS.vector.includes(currentExt)) {
-            console.log(`[INFO] Converting Vector to STL (Depth: ${depth}mm)...`);
-            finalStlPath = processableFile + '.stl';
-            filesCleanupList.push(finalStlPath);
-            await runCommand(`python3 vector2stl.py "${processableFile}" "${finalStlPath}" ${depth}`);
-        } else if (['.obj', '.3mf', '.ply'].includes(currentExt)) {
-            console.log('[INFO] Converting Mesh to STL...');
-            finalStlPath = processableFile + '.stl';
-            filesCleanupList.push(finalStlPath);
-            await runCommand(`python3 mesh2stl.py "${processableFile}" "${finalStlPath}"`);
-        } else if (EXTENSIONS.cad.includes(currentExt)) {
-            console.log('[INFO] Converting CAD to STL...');
-            finalStlPath = processableFile + '.stl';
-            filesCleanupList.push(finalStlPath);
-            await runCommand(`python3 cad2stl.py "${processableFile}" "${finalStlPath}"`);
-        } else if (currentExt === '.stl') {
-            finalStlPath = processableFile;
-        }
-
-        processableFile = finalStlPath;
-
-        console.log(`[INFO] Optimizing orientation for ${technology}...`);
-
-        const orientedStlPath = processableFile.replace('.stl', '_oriented.stl');
-
-        try {
-            await runCommand(`python3 orient.py "${processableFile}" "${orientedStlPath}" ${technology}`);
-
-            if (fs.existsSync(orientedStlPath)) {
-                filesCleanupList.push(orientedStlPath);
-                processableFile = orientedStlPath;
-            }
-        } catch (error_) {
-            console.warn(`[WARN] Orientation optimization failed, proceeding with original. Error: ${error_.message}`);
-        }
+        processableFile = await convertInputToStl(processableFile, depth, filesCleanupList);
+        processableFile = await tryOptimizeOrientation(processableFile, technology, filesCleanupList);
 
         const modelInfo = await getModelInfo(processableFile);
-
-        const limits = MAX_BUILD_VOLUMES[technology];
-        if (modelInfo.x > limits.x || modelInfo.y > limits.y || modelInfo.z > limits.z) {
-            throw new Error(`MODEL_TOO_LARGE|The model size (${modelInfo.x.toFixed(1)} x ${modelInfo.y.toFixed(1)} x ${modelInfo.z.toFixed(1)} mm) exceeds the maximum build volume for ${technology} (${limits.x} x ${limits.y} x ${limits.z} mm).`);
-        }
 
         const outputFilename = `output-${Date.now()}.${technology === 'SLA' ? 'sl1' : 'gcode'}`;
         const outputPath = path.join(OUTPUT_DIR, outputFilename);
@@ -576,16 +744,7 @@ async function processSlice(req, res, forcedTechnology = null) {
 
         console.log(`[INFO] Slicing with ${path.basename(configFile)}...`);
 
-        let slicerArgs = `--load "${configFile}"`;
-
-        slicerArgs += ' --center 100,100';
-
-        if (technology === 'SLA') {
-            slicerArgs += ` --export-sla --output "${outputPath}"`;
-        } else {
-            slicerArgs += ' --support-material --support-material-auto';
-            slicerArgs += ` --gcode-flavor marlin --export-gcode --output "${outputPath}" --fill-density ${infillPercentage}`;
-        }
+        const slicerArgs = buildSlicerCommandArgs(technology, configFile, outputPath, infillPercentage);
 
         await runCommand(`prusa-slicer ${slicerArgs} "${processableFile}"`);
 
@@ -612,38 +771,7 @@ async function processSlice(req, res, forcedTechnology = null) {
             download_url: `/download/${outputFilename}`
         });
     } catch (err) {
-        console.error('[CRITICAL ERROR]', err.message);
-        cleanupFiles(filesCleanupList);
-
-        if (err.message.startsWith('MODEL_TOO_LARGE|')) {
-            const cleanMessage = err.message.split('|')[1];
-            return res.status(400).json({
-                success: false,
-                error: cleanMessage,
-                errorCode: 'MODEL_EXCEEDS_BUILD_VOLUME'
-            });
-        }
-
-        if (isSourceGeometryError(err)) {
-            return res.status(400).json({
-                success: false,
-                error: 'Uploaded model/image/vector contains invalid or non-printable source data. Automatic repair is disabled to preserve exact model fidelity. Please upload a corrected source file.',
-                errorCode: 'INVALID_SOURCE_GEOMETRY'
-            });
-        }
-
-        logError({
-            message: err.message,
-            stderr: err.stderr,
-            stack: err.stack,
-            path: inputFile
-        });
-
-        res.status(500).json({
-            success: false,
-            error: 'Slicing failed. The error has been logged for review.',
-            errorCode: 'INTERNAL_PROCESSING_ERROR'
-        });
+        return handleProcessingError(err, res, filesCleanupList, inputFile);
     }
 }
 

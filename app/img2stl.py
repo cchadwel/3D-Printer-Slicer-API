@@ -5,10 +5,24 @@ for slicing workflows.
 """
 
 import sys
-import os
 import numpy as np
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import trimesh
+
+
+def _build_grid_faces(height, width):
+    """Build triangle faces for a regular heightmap grid."""
+    r = np.arange(height - 1)[:, None]
+    c = np.arange(width - 1)[None, :]
+
+    tl = (r * width + c).ravel()
+    tr = (r * width + c + 1).ravel()
+    bl = ((r + 1) * width + c).ravel()
+    br = ((r + 1) * width + c + 1).ravel()
+
+    first = np.column_stack((bl, tr, tl))
+    second = np.column_stack((bl, br, tr))
+    return np.vstack((first, second))
 
 def image_to_stl(input_path, output_path, depth_mm=3.0, base_mm=0.5):
     """Convert a raster image to an STL heightmap mesh.
@@ -29,9 +43,10 @@ def image_to_stl(input_path, output_path, depth_mm=3.0, base_mm=0.5):
     
     try:
         # 1. Load Image and Convert to Grayscale
-        img = Image.open(input_path).convert('L') 
-        
-        # 2. Resize if too large (Optimization)
+        with Image.open(input_path) as raw_img:
+            img = raw_img.convert('L')
+
+        # 2. Resize if too large
         max_dim = 300
         if img.width > max_dim or img.height > max_dim:
             img.thumbnail((max_dim, max_dim))
@@ -56,19 +71,8 @@ def image_to_stl(input_path, output_path, depth_mm=3.0, base_mm=0.5):
         
         vertices = np.column_stack((X.flatten(), Y.flatten(), Z.flatten()))
         
-        # 5. Generate Faces (Triangulation)
-        faces = []
-        for r in range(height - 1):
-            for c in range(width - 1):
-                tl = r * width + c
-                tr = r * width + (c + 1)
-                bl = (r + 1) * width + c
-                br = (r + 1) * width + (c + 1)
-                
-                faces.append([bl, tr, tl])
-                faces.append([bl, br, tr])
-                
-        faces = np.array(faces)
+        # 5. Generate Faces
+        faces = _build_grid_faces(height, width)
         
         # 6. Create Mesh using Trimesh
         mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
@@ -85,8 +89,17 @@ def image_to_stl(input_path, output_path, depth_mm=3.0, base_mm=0.5):
         mesh.export(output_path)
         print("[PYTHON IMG] Success.")
 
+    except FileNotFoundError:
+        print("[PYTHON IMG] ERROR: Input image file was not found.")
+        sys.exit(1)
+    except UnidentifiedImageError:
+        print("[PYTHON IMG] ERROR: Invalid image file. Please upload a supported image format.")
+        sys.exit(1)
+    except ValueError as e:
+        print(f"[PYTHON IMG] ERROR: Invalid image content. {e}")
+        sys.exit(1)
     except Exception as e:
-        print(f"[PYTHON IMG] CRITICAL ERROR: {str(e)}")
+        print(f"[PYTHON IMG] ERROR: Could not convert this image file. {e}")
         sys.exit(1)
 
 
@@ -99,7 +112,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 3:
         try:
             depth = float(sys.argv[3])
-        except:
+        except ValueError:
             pass
             
     image_to_stl(sys.argv[1], sys.argv[2], depth)

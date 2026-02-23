@@ -5,7 +5,33 @@ orientation-adjusted STL model.
 """
 
 import sys
+import shutil
 import trimesh
+
+
+def _pose_score(mesh, technology, stability_probability=0.0):
+    """Compute orientation score; lower is better."""
+    z_height = float(mesh.extents[2])
+    xy_area = float(mesh.extents[0] * mesh.extents[1])
+    footprint_scale = max(xy_area, 1.0) ** 0.5
+
+    tech = technology.upper()
+    if tech == 'SLA':
+        # SLA: keep height low, but avoid very large peel area.
+        score = z_height + (0.15 * footprint_scale)
+    else:
+        # FDM/default: keep height low and increase footprint for support/stability.
+        score = z_height - (0.35 * footprint_scale)
+
+    score -= float(stability_probability) * 2.0
+    return score, z_height, xy_area
+
+
+def _place_on_build_plate(mesh):
+    """Center XY and place the model on Z=0."""
+    mesh.apply_translation(-mesh.centroid)
+    min_z = mesh.bounds[0][2]
+    mesh.apply_translation([0, 0, -min_z])
 
 def optimize_orientation(input_path, output_path, technology='FDM'):
     """Optimize model orientation for printing.
@@ -37,10 +63,11 @@ def optimize_orientation(input_path, output_path, technology='FDM'):
 
         # 3. Compute stable poses
         try:
-            poses, _ = mesh.compute_stable_poses(n_samples=5, threshold=0.02)
+            poses, probabilities = mesh.compute_stable_poses(n_samples=12, threshold=0.01)
         except Exception as e:
             print(f"[PYTHON ORIENT] Warning: Could not compute stable poses ({e}). Keeping original.")
             poses = []
+            probabilities = []
 
         best_pose = None
         min_score = float('inf')
@@ -56,12 +83,11 @@ def optimize_orientation(input_path, output_path, technology='FDM'):
         for i, tf in enumerate(poses):
             temp_mesh = mesh.copy()
             temp_mesh.apply_transform(tf)
-            
-            z_height = temp_mesh.extents[2]
-            
-            score = z_height 
 
-            print(f" - Pose {i}: Z={z_height:.2f}mm")
+            probability = probabilities[i] if i < len(probabilities) else 0.0
+            score, z_height, xy_area = _pose_score(temp_mesh, technology, probability)
+
+            print(f" - Pose {i}: Z={z_height:.2f}mm, Footprint={xy_area:.2f}mm^2, Stability={probability:.3f}")
 
             if score < min_score:
                 min_score = score
@@ -72,20 +98,14 @@ def optimize_orientation(input_path, output_path, technology='FDM'):
             print(f"[PYTHON ORIENT] Applying optimal orientation (Z: {min_score:.2f}mm)")
             mesh.apply_transform(best_pose)
         
-        # Centering the mesh on X and Y axes
-        mesh.apply_translation(-mesh.centroid)
-        
-        # Ensure the lowest point is at Z=0
-        min_z = mesh.bounds[0][2]
-        mesh.apply_translation([0, 0, -min_z])
+        _place_on_build_plate(mesh)
         
         # 6. Final export
         mesh.export(output_path)
         print(f"[PYTHON ORIENT] Success! Saved to {output_path}")
 
     except Exception as e:
-        print(f"[PYTHON ORIENT] CRITICAL ERROR: {str(e)}")
-        import shutil
+        print(f"[PYTHON ORIENT] ERROR: Could not optimize orientation from this input file. {str(e)}")
         shutil.copy2(input_path, output_path)
         sys.exit(1)
 

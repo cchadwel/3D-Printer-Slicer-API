@@ -25,7 +25,7 @@ Built for **Zero-Downtime deployment**, this API is designed to serve as the bac
 
 - 💰 **Dynamic Pricing Engine:** Extracts exact material usage and estimated print times from G-code/SL1 files to generate precise cost estimations based on customizable hourly rates.
 
-- 🛡️ **Robust Pre-Flight Checks:** Prevents server crashes by validating physical dimensions against maximum build volumes before initiating CPU-intensive slicing.
+- 🛡️ **Robust Pre-Flight Checks:** Validates request structure and processing constraints before CPU-intensive slicing starts.
 
 - 🚦 **Abuse Protection:** Per-IP rate limiting and bounded in-memory slicing queue protect CPU/RAM from request floods.
 
@@ -53,6 +53,8 @@ The API accepts single files or `.zip` archives containing any of the following 
 Pricing is now **persistent** and loaded from `configs/pricing.json` at startup.
 
 If `configs/pricing.json` does not exist, the API auto-creates it with default FDM/SLA pricing.
+
+All API examples and payloads below are production-compatible with the current backend behavior.
 
 ### Pricing Management Endpoint (Public)
 
@@ -95,7 +97,16 @@ If `configs/pricing.json` does not exist, the API auto-creates it with default F
 ### Slicing Endpoints (Public)
 
 #### `POST /slice/FDM`
-Generate a FDM slicing profile and price estimate by uploading a file.
+Generate an FDM slicing profile and price estimate by uploading one supported input file (`direct`, `CAD`, `vector`, `image`, or `.zip`).
+
+```bash
+curl -X POST http://localhost:3000/slice/FDM \
+  -H "Accept: application/json" \
+  -F "choosenFile=@/path/to/your/model.stl" \
+  -F "layerHeight=0.2" \
+  -F "material=PLA" \
+  -F "infill=20"
+```
 
 **JSON Response:**
 
@@ -118,7 +129,7 @@ Generate a FDM slicing profile and price estimate by uploading a file.
 ```
 
 #### `POST /slice/SLA`
-Generate a SLA slicing profile and price estimate by uploading a file.
+Generate an SLA slicing profile and price estimate by uploading one supported input file.
 
 ```bash
 curl -X POST http://localhost:3000/slice/SLA \
@@ -148,6 +159,11 @@ curl -X POST http://localhost:3000/slice/SLA \
 }
 ```
 
+Common slicing error responses:
+- `INVALID_SOURCE_ARCHIVE` → uploaded ZIP is invalid or does not contain a supported file.
+- `INVALID_SOURCE_GEOMETRY` → uploaded source geometry is invalid/non-printable and auto-repair is disabled.
+- `FILE_PROCESSING_TIMEOUT` (HTTP `422`) → processing exceeded 10 minutes for the uploaded file.
+
 ---
 
 ## ⚙️ Configuration & Limits
@@ -157,17 +173,14 @@ You can customize pricing, security, and slicing behavior without changing endpo
 - **Pricing Matrix:** Persisted in `configs/pricing.json` (managed via `/pricing` endpoints).
 - **Admin Security:** `ADMIN_API_KEY` environment variable controls access to pricing updates/deletes.
 - **Fail-Fast Security:** Server startup is blocked if `ADMIN_API_KEY` is missing.
-- **Build Volumes:** Pre-flight checks protect the server from processing models that exceed physical dimensions.
-  - *Default FDM:* 250 x 210 x 210 mm
-  - *Default SLA:* 120 x 120 x 150 mm
 - **Request Rate Limit:** Slicing endpoints are IP-rate-limited (default `5` requests / `60s`).
 - **Slicing Queue:** CPU-heavy slice jobs are queued and processed with bounded concurrency (`MAX_CONCURRENT_SLICES`, default = CPU cores).
 - **Queue Safety Limits:** Queue length and wait timeout are bounded (`MAX_SLICE_QUEUE_LENGTH`, `MAX_SLICE_QUEUE_WAIT_MS`).
-- **Upload Body Limit:** Multipart upload size is capped (`MAX_UPLOAD_BYTES`, default `100MB`).
+- **Upload Body Limit:** Multipart upload size is capped (`MAX_UPLOAD_BYTES`, default `500MB`).
 - **ZIP Safety Limits:** ZIP extraction is guarded by max entries and max cumulative extracted size (`MAX_ZIP_ENTRIES`, `MAX_ZIP_UNCOMPRESSED_BYTES`).
 - **Body Parser Limits:** JSON/form payload size is capped (`JSON_BODY_LIMIT`, `FORM_BODY_LIMIT`, default `1mb`).
 - **Slicer Profiles:** Stored in `configs/*.ini` (e.g. `FDM_0.2mm.ini`, `SLA_0.05mm.ini`).
-- **Timeouts:** Internal 10-minute kill-switches prevent infinite loops during complex conversion/slicing operations.
+- **Timeouts:** Internal 10-minute kill-switches prevent infinite loops during complex conversion/slicing operations and return `FILE_PROCESSING_TIMEOUT` when exceeded.
 - **Model Fidelity Policy:** Uploaded model/image/vector data is never auto-healed or shape-corrected; invalid/non-printable source data is rejected with a clear error.
 
 ---

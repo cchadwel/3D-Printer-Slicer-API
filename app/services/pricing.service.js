@@ -4,7 +4,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { PRICING_FILE, RUNTIME_PRICING_FILE } = require('../config/paths');
+const { PRICING_FILE } = require('../config/paths');
 
 /**
  * Default fallback pricing matrix in HUF/hour.
@@ -39,7 +39,7 @@ function writePricingFile(filePath) {
 }
 
 function getExistingCandidates() {
-    const candidates = [PRICING_FILE, RUNTIME_PRICING_FILE].filter((filePath) => fs.existsSync(filePath));
+    const candidates = [PRICING_FILE].filter((filePath) => fs.existsSync(filePath));
     return candidates.sort((a, b) => {
         const aTime = fs.statSync(a).mtimeMs;
         const bTime = fs.statSync(b).mtimeMs;
@@ -52,7 +52,7 @@ function getExistingCandidates() {
  * @returns {boolean} True when save succeeds, otherwise false.
  */
 function savePricingToDisk() {
-    const writeTargets = [activePricingFile, PRICING_FILE, RUNTIME_PRICING_FILE]
+    const writeTargets = [activePricingFile, PRICING_FILE]
         .filter((value, index, arr) => arr.indexOf(value) === index);
 
     for (const targetFile of writeTargets) {

@@ -6,6 +6,17 @@ Loads supported polygonal mesh formats and exports normalized STL output.
 import sys
 import trimesh
 
+
+def _load_as_mesh(input_path):
+    """Load input file and normalize to a single mesh."""
+    mesh = trimesh.load(input_path)
+    if isinstance(mesh, trimesh.Scene):
+        print("[PYTHON] Input is a Scene, merging geometries...")
+        if not mesh.geometry:
+            raise ValueError("The uploaded file does not contain mesh geometry.")
+        mesh = trimesh.util.concatenate(mesh.dump())
+    return mesh
+
 def convert_mesh_to_stl(input_path, output_path):
     """Convert a mesh or mesh scene to STL.
 
@@ -21,24 +32,20 @@ def convert_mesh_to_stl(input_path, output_path):
     """
     print(f"[PYTHON] Loading mesh: {input_path}")
     try:
-        # 1. Loading the mesh
-        mesh = trimesh.load(input_path)
-
-        # 2. Scene handling
-        if isinstance(mesh, trimesh.Scene):
-            print("[PYTHON] Input is a Scene, merging geometries...")
-
-            if len(mesh.geometry) == 0:
-                raise ValueError("Scene is empty!")
-
-            mesh = trimesh.util.concatenate(mesh.dump())
+        mesh = _load_as_mesh(input_path)
 
         # 3. Exporting to STL
         mesh.export(output_path)
         print(f"[PYTHON] Success! Exported to {output_path}")
 
+    except FileNotFoundError:
+        print("[PYTHON] ERROR: Input mesh file was not found.")
+        sys.exit(1)
+    except ValueError as e:
+        print(f"[PYTHON] ERROR: Invalid mesh file. {e}")
+        sys.exit(1)
     except Exception as e:
-        print(f"[PYTHON] Error converting mesh: {e}")
+        print(f"[PYTHON] ERROR: Could not convert this mesh file. {e}")
         sys.exit(1)
 
 

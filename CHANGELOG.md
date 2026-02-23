@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented in this file.
 
+## v2.1.2 (2026-02-23)
+
+### Changed
+
+- Refactored slicing error handling and response mapping for clearer API behavior:
+  - invalid archive input now returns `INVALID_SOURCE_ARCHIVE`
+  - invalid/non-printable source geometry now returns `INVALID_SOURCE_GEOMETRY`
+  - 10-minute processing timeout now returns `FILE_PROCESSING_TIMEOUT` with HTTP `422`
+- Hardened ZIP processing with runtime path resolution and retry logic to prevent transient `ENOENT` failures on upload extraction.
+- Disabled model-size preflight slicing stop. Requests are no longer rejected solely due to build-volume dimension checks.
+- Reduced cognitive complexity in `slice.service.js` by extracting request parsing, ZIP extraction, conversion, orientation, slicer argument building, and error handling into focused helper functions.
+- Improved Docker runtime compatibility:
+  - fixed Python script/runtime path consistency
+- Removed filesystem logging dependency on `/logs`:
+  - removed `LOGS_DIR` and `RUNTIME_PRICING_FILE` path usage
+  - removed `pricing.runtime.json` fallback/write target
+  - switched error logger to console-only structured logging
+
+### Documentation
+
+- Updated README API usage wording and examples for clarity and consistency.
+- Updated README behavior notes to reflect current slicing policy (no preflight build-volume stop).
+- Added README notes on Python test runner execution and interpreting `tests/results` outputs.
+
 ## v2.1.1 (2026-02-21)
 
 ### Changed
