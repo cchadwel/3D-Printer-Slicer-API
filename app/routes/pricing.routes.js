@@ -80,7 +80,8 @@ router.post('/pricing/FDM', requireAdmin, (req, res) => createMaterialForTechnol
 router.post('/pricing/SLA', requireAdmin, (req, res) => createMaterialForTechnology(req, res, 'SLA'));
 
 /**
- * Create or update material hourly pricing.
+ * Update an existing material hourly pricing entry.
+ * Rejects unknown materials with HTTP 400.
  * @param {import('express').Request} req Express request object.
  * @param {import('express').Response} res Express response object.
  * @returns {import('express').Response}
@@ -101,7 +102,15 @@ router.patch('/pricing/:technology/:material', requireAdmin, (req, res) => {
         return res.status(400).json({ success: false, error: 'material is required.' });
     }
 
-    const materialKey = updateMaterialPrice(technology, materialParam, price);
+    const existingMaterialKey = findMaterialKey(technology, materialParam);
+    if (!existingMaterialKey) {
+        return res.status(400).json({
+            success: false,
+            error: 'Material does not exist for this technology. Only existing materials can be updated.'
+        });
+    }
+
+    const materialKey = updateMaterialPrice(technology, existingMaterialKey, price);
 
     if (!savePricingToDisk()) {
         return res.status(500).json({ success: false, error: 'Failed to persist pricing update.' });

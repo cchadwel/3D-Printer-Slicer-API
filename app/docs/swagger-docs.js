@@ -18,7 +18,8 @@ function createSwaggerDocument(pricing) {
         },
         tags: [
             { name: 'Pricing', description: 'Runtime pricing configuration endpoints' },
-            { name: 'Slicing', description: 'Explicit FDM/SLA slicing and print estimation endpoints' }
+            { name: 'Slicing', description: 'Explicit FDM/SLA slicing and print estimation endpoints' },
+            { name: 'Admin', description: 'Protected operational endpoints requiring x-api-key' }
         ],
         paths: {
         '/pricing': {
@@ -101,7 +102,7 @@ function createSwaggerDocument(pricing) {
                             schema: {
                                 type: 'object',
                                 properties: {
-                                    material: { type: 'string', example: 'High-Templ', description: 'New SLA material name.' },
+                                    material: { type: 'string', example: 'High-Temp', description: 'New SLA material name.' },
                                     price: { type: 'number', example: 2400, description: 'Hourly price in HUF.' }
                                 },
                                 required: ['material', 'price']
@@ -121,7 +122,7 @@ function createSwaggerDocument(pricing) {
         '/pricing/FDM/{material}': {
             patch: {
                 tags: ['Pricing'],
-                summary: 'Update or create FDM material price.',
+                summary: 'Update existing FDM material price.',
                 description: 'Protected endpoint. Requires x-api-key header.',
                 parameters: [
                     {
@@ -153,7 +154,7 @@ function createSwaggerDocument(pricing) {
                 },
                 responses: {
                     200: { description: 'Price updated successfully' },
-                    400: { description: 'Validation error' },
+                    400: { description: 'Validation error (including non-existing material)' },
                     401: { description: 'Unauthorized' },
                     500: { description: 'Persistence error' }
                 }
@@ -188,7 +189,7 @@ function createSwaggerDocument(pricing) {
         '/pricing/SLA/{material}': {
             patch: {
                 tags: ['Pricing'],
-                summary: 'Update or create SLA material price.',
+                summary: 'Update existing SLA material price.',
                 description: 'Protected endpoint. Requires x-api-key header.',
                 parameters: [
                     {
@@ -220,7 +221,7 @@ function createSwaggerDocument(pricing) {
                 },
                 responses: {
                     200: { description: 'Price updated successfully' },
-                    400: { description: 'Validation error' },
+                    400: { description: 'Validation error (including non-existing material)' },
                     401: { description: 'Unauthorized' },
                     500: { description: 'Persistence error' }
                 }
@@ -340,6 +341,52 @@ function createSwaggerDocument(pricing) {
                     200: { description: 'Slicing successful' },
                     400: { description: 'Bad Request' },
                     500: { description: 'Server Error' }
+                }
+            }
+        },
+        '/admin/output-files': {
+            get: {
+                tags: ['Admin'],
+                summary: 'List generated files under output directory.',
+                description: 'Protected endpoint. Requires x-api-key header.',
+                parameters: [
+                    {
+                        name: 'x-api-key',
+                        in: 'header',
+                        required: true,
+                        schema: { type: 'string' }
+                    }
+                ],
+                responses: {
+                    200: {
+                        description: 'Output files listed successfully',
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: 'object',
+                                    properties: {
+                                        success: { type: 'boolean', example: true },
+                                        total: { type: 'integer', example: 12 },
+                                        files: {
+                                            type: 'array',
+                                            items: {
+                                                type: 'object',
+                                                properties: {
+                                                    fileName: { type: 'string', example: 'output-1771944598794.gcode' },
+                                                    sizeBytes: { type: 'integer', example: 409600 },
+                                                    createdAt: { type: 'string', format: 'date-time' },
+                                                    modifiedAt: { type: 'string', format: 'date-time' }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    401: { description: 'Unauthorized' },
+                    503: { description: 'Admin API key is not configured on server' },
+                    500: { description: 'Failed to list output files' }
                 }
             }
         }

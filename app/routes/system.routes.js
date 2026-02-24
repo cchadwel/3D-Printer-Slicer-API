@@ -1,11 +1,12 @@
 /**
- * System route definitions for health and static icon endpoints.
+ * System route definitions for health, static icon, and protected operational endpoints.
  */
 
 const express = require('express');
 const fs = require('node:fs');
 const path = require('node:path');
-const { APP_ROOT } = require('../config/paths');
+const { APP_ROOT, OUTPUT_DIR } = require('../config/paths');
+const requireAdmin = require('../middleware/requireAdmin');
 
 const router = express.Router();
 
@@ -31,6 +32,44 @@ router.get('/favicon.ico', (req, res) => {
         res.sendFile(faviconPath);
     } else {
         res.status(404).end();
+    }
+});
+
+/**
+ * Protected endpoint to list generated slicing output files.
+ * Requires valid x-api-key header.
+ * @param {import('express').Request} req Express request object.
+ * @param {import('express').Response} res Express response object.
+ * @returns {import('express').Response}
+ */
+router.get('/admin/output-files', requireAdmin, (req, res) => {
+    try {
+        const entries = fs
+            .readdirSync(OUTPUT_DIR, { withFileTypes: true })
+            .filter((entry) => entry.isFile())
+            .map((entry) => {
+                const fullPath = path.join(OUTPUT_DIR, entry.name);
+                const stat = fs.statSync(fullPath);
+
+                return {
+                    fileName: entry.name,
+                    sizeBytes: stat.size,
+                    createdAt: stat.birthtime.toISOString(),
+                    modifiedAt: stat.mtime.toISOString()
+                };
+            })
+            .sort((left, right) => new Date(right.modifiedAt).getTime() - new Date(left.modifiedAt).getTime());
+
+        return res.status(200).json({
+            success: true,
+            total: entries.length,
+            files: entries
+        });
+    } catch (error_) {
+        return res.status(500).json({
+            success: false,
+            error: `Failed to list output files. ${error_.message}`
+        });
     }
 });
 

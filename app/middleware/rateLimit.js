@@ -61,11 +61,11 @@ function createIpRateLimiter({ windowMs, maxRequests }) {
 }
 
 const SLICE_RATE_LIMIT_WINDOW_MS = parsePositiveInt(process.env.SLICE_RATE_LIMIT_WINDOW_MS, 60_000);
-const SLICE_RATE_LIMIT_MAX_REQUESTS = parsePositiveInt(process.env.SLICE_RATE_LIMIT_MAX_REQUESTS, 5);
+const SLICE_RATE_LIMIT_MAX_REQUESTS = parsePositiveInt(process.env.SLICE_RATE_LIMIT_MAX_REQUESTS, 3);
 
 /**
  * IP-based limiter used on slicing endpoints to reduce brute-force and flood traffic.
- * Default policy: 5 requests / 60 seconds / IP.
+ * Default policy: 3 requests / 60 seconds / IP.
  */
 const sliceRateLimiter = createIpRateLimiter({
     windowMs: SLICE_RATE_LIMIT_WINDOW_MS,

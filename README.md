@@ -63,7 +63,7 @@ All API examples and payloads below are production-compatible with the current b
 
 ### Pricing Management Endpoints (Admin-Protected)
 
-> Pricing technology path segment is **case-sensitive** and canonicalized as uppercase (`FDM`, `SLA`).
+> Material identifiers are matched case-insensitively (`PLA`, `pla`, `pLa` are treated as the same material key).
 
 #### `POST /pricing/FDM`
   - Header: `x-api-key: <ADMIN_API_KEY>`
@@ -78,12 +78,14 @@ All API examples and payloads below are production-compatible with the current b
 #### `PATCH /pricing/FDM/:material`
   - Header: `x-api-key: <ADMIN_API_KEY>`
   - Body: `{ "price": 950 }`
-  - Updates FDM material price.
+  - Updates an existing FDM material price.
+  - Returns `400` if the material does not exist.
 
 #### `PATCH /pricing/SLA/:material`
   - Header: `x-api-key: <ADMIN_API_KEY>`
   - Body: `{ "price": 1800 }`
-  - Updates SLA material price.
+  - Updates an existing SLA material price.
+  - Returns `400` if the material does not exist.
 
 #### `DELETE /pricing/FDM/:material`
   - Header: `x-api-key: <ADMIN_API_KEY>`
@@ -123,8 +125,7 @@ curl -X POST http://localhost:3000/slice/FDM \
     "material_used_m": 12.45,
     "object_height_mm": 45.2,
     "estimated_price_huf": 1350
-  },
-  "download_url": "/download/output-1771529853699.gcode"
+  }
 }
 ```
 
@@ -154,8 +155,30 @@ curl -X POST http://localhost:3000/slice/SLA \
     "material_used_m": 0,
     "object_height_mm": 8.5,
     "estimated_price_huf": 1000
-  },
-  "download_url": "/download/output-1771759425979.sl1"
+  }
+}
+```
+
+### Admin Operational Endpoints (Protected)
+
+#### `GET /admin/output-files`
+  - Header: `x-api-key: <ADMIN_API_KEY>`
+  - Lists generated artifacts currently present under the `output/` directory.
+
+**JSON Response:**
+
+```json
+{
+  "success": true,
+  "total": 2,
+  "files": [
+    {
+      "fileName": "output-1771944598794.gcode",
+      "sizeBytes": 409600,
+      "createdAt": "2026-02-24T15:10:00.000Z",
+      "modifiedAt": "2026-02-24T15:10:01.000Z"
+    }
+  ]
 }
 ```
 
@@ -172,9 +195,10 @@ You can customize pricing, security, and slicing behavior without changing endpo
 
 - **Pricing Matrix:** Persisted in `configs/pricing.json` (managed via `/pricing` endpoints).
 - **Admin Security:** `ADMIN_API_KEY` environment variable controls access to pricing updates/deletes.
+- **Admin File Listing:** `GET /admin/output-files` requires `ADMIN_API_KEY` and returns generated output artifacts.
 - **Fail-Fast Security:** Server startup is blocked if `ADMIN_API_KEY` is missing.
-- **Request Rate Limit:** Slicing endpoints are IP-rate-limited (default `5` requests / `60s`).
-- **Slicing Queue:** CPU-heavy slice jobs are queued and processed with bounded concurrency (`MAX_CONCURRENT_SLICES`, default = CPU cores).
+- **Request Rate Limit:** Slicing endpoints are IP-rate-limited (default `3` requests / `60s`).
+- **Slicing Queue:** CPU-heavy slice jobs are queued in arrival order and processed FIFO (`MAX_CONCURRENT_SLICES`, default `1`).
 - **Queue Safety Limits:** Queue length and wait timeout are bounded (`MAX_SLICE_QUEUE_LENGTH`, `MAX_SLICE_QUEUE_WAIT_MS`).
 - **Upload Body Limit:** Multipart upload size is capped (`MAX_UPLOAD_BYTES`, default `500MB`).
 - **ZIP Safety Limits:** ZIP extraction is guarded by max entries and max cumulative extracted size (`MAX_ZIP_ENTRIES`, `MAX_ZIP_UNCOMPRESSED_BYTES`).

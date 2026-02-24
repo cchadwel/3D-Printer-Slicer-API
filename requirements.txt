@@ -1,4 +1,6 @@
 trimesh==4.11.2
+networkx==3.5
+lxml==6.0.2
 ezdxf==1.4.3
 shapely==2.1.2
 svg.path==7.0

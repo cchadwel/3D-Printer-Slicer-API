@@ -120,14 +120,23 @@ function normalizeTechnology(value) {
 }
 
 /**
+ * Normalize material identifier for case-insensitive comparisons.
+ * @param {string} value Raw material label.
+ * @returns {string} Canonical normalized token.
+ */
+function normalizeMaterialToken(value) {
+    return String(value || '').trim().toUpperCase();
+}
+
+/**
  * Resolve material key case-insensitively from pricing map.
  * @param {'FDM' | 'SLA'} technology Technology namespace.
  * @param {string} materialParam Material name from request.
  * @returns {string | null} Existing material key or null when not found.
  */
 function findMaterialKey(technology, materialParam) {
-    const requested = String(materialParam || '').toLowerCase();
-    return Object.keys(pricing[technology] || {}).find((key) => key.toLowerCase() === requested) || null;
+    const requested = normalizeMaterialToken(materialParam);
+    return Object.keys(pricing[technology] || {}).find((key) => normalizeMaterialToken(key) === requested) || null;
 }
 
 /**
@@ -139,7 +148,7 @@ function findMaterialKey(technology, materialParam) {
  */
 function updateMaterialPrice(technology, materialParam, price) {
     const existingMaterialKey = findMaterialKey(technology, materialParam);
-    const materialKey = existingMaterialKey || materialParam;
+    const materialKey = existingMaterialKey || normalizeMaterialToken(materialParam);
     pricing[technology][materialKey] = price;
     return materialKey;
 }
@@ -163,8 +172,9 @@ function removeMaterial(technology, materialKey) {
  */
 function getRate(technology, material) {
     const techPricing = pricing[technology] || {};
-    if (Object.hasOwn(techPricing, material)) {
-        return techPricing[material];
+    const materialKey = findMaterialKey(technology, material);
+    if (materialKey && Object.hasOwn(techPricing, materialKey)) {
+        return techPricing[materialKey];
     }
 
     const firstRate = Object.values(techPricing).find((value) => Number.isFinite(value) && value > 0);
@@ -180,6 +190,7 @@ module.exports = {
     savePricingToDisk,
     getPricing,
     normalizeTechnology,
+    normalizeMaterialToken,
     findMaterialKey,
     updateMaterialPrice,
     removeMaterial,

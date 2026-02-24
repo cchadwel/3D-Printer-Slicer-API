@@ -2,6 +2,43 @@
 
 All notable changes to this project are documented in this file.
 
+## v2.2.0 (2026-02-24)
+
+### Added
+
+- Added protected admin endpoint for generated artifact discovery:
+  - `GET /admin/output-files`
+  - requires `x-api-key` (`ADMIN_API_KEY` must be configured)
+  - returns file metadata from `output/` (`fileName`, `sizeBytes`, `createdAt`, `modifiedAt`)
+- Added integration test runner for admin output file listing:
+  - `tests/admin_output_files_test_runner.py`
+
+### Changed
+
+- Updated slicing response contract:
+  - removed `download_url` from `POST /slice/FDM` and `POST /slice/SLA` success payloads.
+- Tightened slice endpoint flood control:
+  - default slice rate limit is now `3 requests / 60 seconds / IP`.
+  - applies only to slicing POST endpoints (`POST /slice/FDM`, `POST /slice/SLA`).
+- Updated slice queue execution policy:
+  - requests are accepted and processed in FIFO arrival order.
+  - default queue concurrency is now `1` (`MAX_CONCURRENT_SLICES`).
+- Updated pricing PATCH behavior:
+  - `PATCH /pricing/:technology/:material` now updates existing materials only.
+  - returns `400` when material does not exist for the selected technology.
+- Standardized pricing material matching behavior:
+  - create/update/delete matching is case-insensitive (`PLA`, `pla`, `pLa` are equivalent).
+  - new material keys are stored in canonical uppercase form.
+- Improved docs and test guidance:
+  - README updated for new admin endpoint and response contract changes.
+  - `tests/API Test.md` updated with new admin endpoint test workflow.
+
+### Documentation
+
+- OpenAPI/Swagger updated with:
+  - admin endpoint schema for `GET /admin/output-files`
+  - PATCH summary/validation notes for existing-material-only updates.
+
 ## v2.1.2 (2026-02-23)
 
 ### Changed

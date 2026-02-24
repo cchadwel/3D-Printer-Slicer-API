@@ -6,7 +6,6 @@
 const { exec } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
-const os = require('node:os');
 const { pipeline } = require('node:stream/promises');
 const yauzl = require('yauzl');
 const { EXTENSIONS } = require('../config/constants');
@@ -36,9 +35,10 @@ const MAX_ZIP_UNCOMPRESSED_BYTES = parsePositiveInt(
 const MAX_ZIP_ENTRIES = parsePositiveInt(process.env.MAX_ZIP_ENTRIES || '200', 200);
 const MAX_SLICE_QUEUE_LENGTH = parsePositiveInt(process.env.MAX_SLICE_QUEUE_LENGTH || '100', 100);
 const MAX_SLICE_QUEUE_WAIT_MS = parsePositiveInt(process.env.MAX_SLICE_QUEUE_WAIT_MS || '300000', 300000);
+// FIFO sequential processing by default; can be increased via env when needed.
 const MAX_CONCURRENT_SLICES = parsePositiveInt(
-    process.env.MAX_CONCURRENT_SLICES || `${Math.max(1, os.cpus().length)}`,
-    Math.max(1, os.cpus().length)
+    process.env.MAX_CONCURRENT_SLICES || '1',
+    1
 );
 
 const sliceQueue = [];
@@ -767,8 +767,7 @@ async function processSlice(req, res, forcedTechnology = null) {
             stats: {
                 ...stats,
                 estimated_price_huf: totalPrice
-            },
-            download_url: `/download/${outputFilename}`
+            }
         });
     } catch (err) {
         return handleProcessingError(err, res, filesCleanupList, inputFile);
