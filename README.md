@@ -189,27 +189,7 @@ Common slicing error responses:
 
 ---
 
-## ⚙️ Configuration & Limits
-
-You can customize pricing, security, and slicing behavior without changing endpoint contracts.
-
-- **Pricing Matrix:** Persisted in `configs/pricing.json` (managed via `/pricing` endpoints).
-- **Admin Security:** `ADMIN_API_KEY` environment variable controls access to pricing updates/deletes.
-- **Admin File Listing:** `GET /admin/output-files` requires `ADMIN_API_KEY` and returns generated output artifacts.
-- **Fail-Fast Security:** Server startup is blocked if `ADMIN_API_KEY` is missing.
-- **Request Rate Limit:** Slicing endpoints are IP-rate-limited (default `3` requests / `60s`).
-- **Slicing Queue:** CPU-heavy slice jobs are queued in arrival order and processed FIFO (`MAX_CONCURRENT_SLICES`, default `1`).
-- **Queue Safety Limits:** Queue length and wait timeout are bounded (`MAX_SLICE_QUEUE_LENGTH`, `MAX_SLICE_QUEUE_WAIT_MS`).
-- **Upload Body Limit:** Multipart upload size is capped (`MAX_UPLOAD_BYTES`, default `500MB`).
-- **ZIP Safety Limits:** ZIP extraction is guarded by max entries and max cumulative extracted size (`MAX_ZIP_ENTRIES`, `MAX_ZIP_UNCOMPRESSED_BYTES`).
-- **Body Parser Limits:** JSON/form payload size is capped (`JSON_BODY_LIMIT`, `FORM_BODY_LIMIT`, default `1mb`).
-- **Slicer Profiles:** Stored in `configs/*.ini` (e.g. `FDM_0.2mm.ini`, `SLA_0.05mm.ini`).
-- **Timeouts:** Internal 10-minute kill-switches prevent infinite loops during complex conversion/slicing operations and return `FILE_PROCESSING_TIMEOUT` when exceeded.
-- **Model Fidelity Policy:** Uploaded model/image/vector data is never auto-healed or shape-corrected; invalid/non-printable source data is rejected with a clear error.
-
----
-
-## 🔏 Quick setup (`.env`, configs, input/output)
+## 🔏 Learn how to setup `.env`, configs, input/output
 
 1. Create your env file from template:
 
@@ -239,6 +219,26 @@ cp .env.template .env
 - `configs/SLA_0.025mm.ini`
 - `configs/SLA_0.05mm.ini`
 - `configs/pricing.json` (auto-created with defaults if missing)
+
+---
+
+## ⚙️ Configuration & Limits
+
+You can customize pricing, security, and slicing behavior without changing endpoint contracts.
+
+- **Pricing Matrix:** Persisted in `configs/pricing.json` (managed via `/pricing` endpoints).
+- **Admin Security:** `ADMIN_API_KEY` environment variable controls access to pricing updates/deletes.
+- **Admin File Listing:** `GET /admin/output-files` requires `ADMIN_API_KEY` and returns generated output artifacts.
+- **Fail-Fast Security:** Server startup is blocked if `ADMIN_API_KEY` is missing.
+- **Request Rate Limit:** Slicing endpoints are IP-rate-limited (default `3` requests / `60s`).
+- **Slicing Queue:** CPU-heavy slice jobs are queued in arrival order and processed FIFO (`MAX_CONCURRENT_SLICES`, default `1`).
+- **Queue Safety Limits:** Queue length and wait timeout are bounded (`MAX_SLICE_QUEUE_LENGTH`, `MAX_SLICE_QUEUE_WAIT_MS`).
+- **Upload Body Limit:** Multipart upload size is capped (`MAX_UPLOAD_BYTES`, default `500MB`).
+- **ZIP Safety Limits:** ZIP extraction is guarded by max entries and max cumulative extracted size (`MAX_ZIP_ENTRIES`, `MAX_ZIP_UNCOMPRESSED_BYTES`).
+- **Body Parser Limits:** JSON/form payload size is capped (`JSON_BODY_LIMIT`, `FORM_BODY_LIMIT`, default `1mb`).
+- **Slicer Profiles:** Stored in `configs/*.ini` (e.g. `FDM_0.2mm.ini`, `SLA_0.05mm.ini`).
+- **Timeouts:** Internal 10-minute kill-switches prevent infinite loops during complex conversion/slicing operations and return `FILE_PROCESSING_TIMEOUT` when exceeded.
+- **Model Fidelity Policy:** Uploaded model/image/vector data is never auto-healed or shape-corrected; invalid/non-printable source data is rejected with a clear error.
 
 ---
 

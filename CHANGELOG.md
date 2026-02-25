@@ -2,6 +2,37 @@
 
 All notable changes to this project are documented in this file.
 
+## v2.2.2 (2026-02-25)
+
+### Added
+
+- Published previously private API testing scripts as public repository assets.
+- Added unified shared test helpers:
+  - `tests/testing scripts/common/env_utils.py`
+  - `tests/testing scripts/common/http_utils.py`
+- Added standardized JSON and Markdown report outputs for test runners under:
+  - `tests/testing scripts/results/`
+
+### Changed
+
+- Reorganized test assets into dedicated public structure:
+  - `tests/testing scripts/` for runners and docs
+  - `tests/testing files/` for sample inputs
+- Refactored slicing internals by decomposing large service logic into focused modules:
+  - queue handling (`app/services/slice/queue.js`)
+  - command execution (`app/services/slice/command.js`)
+  - ZIP processing (`app/services/slice/zip.js`)
+- Improved Docker runtime path resolution for configuration profiles and pricing persistence.
+- Fixed pricing persistence in containerized runtime by writing `pricing.json` to writable config storage (`/app/configs/pricing.json`).
+- Restored Docker slicing stability by fixing runtime config profile lookup (`FDM_*.ini`, `SLA_*.ini`).
+
+### Validation
+
+- Verified Docker-based integration runs for:
+  - admin output-files flow
+  - pricing lifecycle flow
+  - queue concurrency flow
+
 ## v2.2.1 (2026-02-25)
 
 ### Added

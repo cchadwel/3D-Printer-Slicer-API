@@ -9,7 +9,9 @@ __pycache__/
 venv/
 
 # Environment / secrets
-
+.env
+.env.*
+*.env
 
 # IDE / OS artifacts
 .vscode/
@@ -19,10 +21,8 @@ venv/
 
 # Runtime output
 input/*
-!input/.gitkeep
 output/*
-!output/.gitkeep
-tests/
+tests/testing-files/
 
 # Config data
 !configs/.gitkeep
