@@ -6,6 +6,7 @@ const express = require('express');
 const path = require('node:path');
 const cors = require('cors');
 const swaggerUi = require('swagger-ui-express');
+require('dotenv').config();
 const createSwaggerDocument = require('./docs/swagger-docs');
 const pricingRoutes = require('./routes/pricing.routes');
 const sliceRoutes = require('./routes/slice.routes');

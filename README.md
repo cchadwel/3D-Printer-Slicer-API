@@ -209,6 +209,39 @@ You can customize pricing, security, and slicing behavior without changing endpo
 
 ---
 
+## 🔏 Quick setup (`.env`, configs, input/output)
+
+1. Create your env file from template:
+
+```bash
+cp .env.template .env
+```
+
+2. Set at least `ADMIN_API_KEY` in `.env`.
+
+3. Start the app:
+  - local: `npm start`
+  - docker: `docker compose up -d --build`
+
+4. The app now reads `.env` automatically on local startup via `dotenv`, and Docker reads it via `env_file`.
+
+### Runtime folders used by the program
+
+- `input/` → temporary working input directory used during conversion/slicing pipeline.
+- `output/` → generated output artifacts (`.gcode`, `.sl1`, etc.).
+- `configs/` → slicer profile `.ini` files + persistent `pricing.json`.
+
+### Config files you can use out-of-the-box
+
+- `configs/FDM_0.1mm.ini`
+- `configs/FDM_0.2mm.ini`
+- `configs/FDM_0.3mm.ini`
+- `configs/SLA_0.025mm.ini`
+- `configs/SLA_0.05mm.ini`
+- `configs/pricing.json` (auto-created with defaults if missing)
+
+---
+
 ## 📦 Release Log
 
 Detailed version history and retroactive tag notes are maintained in [`CHANGELOG.md`](https://github.com/hajdu-patrik/3D-Printer-Slicer-API/blob/main/CHANGELOG.md).

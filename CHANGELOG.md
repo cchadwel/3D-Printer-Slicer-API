@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented in this file.
 
+## v2.2.1 (2026-02-25)
+
+### Added
+
+- Added `.env.template` with required and optional runtime variables.
+
+### Changed
+
+- Added `dotenv` integration so local `npm start` also loads `.env` values.
+- Updated package version to `2.2.1`.
+
+### Documentation
+
+- Added a quick setup section to README covering:
+  - how to wire `.env.template` into `.env`
+  - runtime `input/`, `output/`, and `configs/` folder roles
+  - available built-in config profiles (`FDM`/`SLA` `.ini`) and `pricing.json` behavior
+
 ## v2.2.0 (2026-02-24)
 
 ### Added
