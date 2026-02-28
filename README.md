@@ -226,7 +226,6 @@ No app-local runtime folders are used (`app/input`, `app/output`, `app/configs` 
 - `configs/FDM_0.3mm.ini`
 - `configs/SLA_0.025mm.ini`
 - `configs/SLA_0.05mm.ini`
-- `configs/pricing.json` (auto-created with defaults if missing)
 
 ---
 
