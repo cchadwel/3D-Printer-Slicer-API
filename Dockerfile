@@ -35,10 +35,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 RUN python3 -m venv "$VIRTUAL_ENV"
 
-COPY requirements.txt ./
+COPY requirements.lock ./
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --upgrade pip setuptools wheel \
-    && pip install -r requirements.txt
+    && pip install -r requirements.lock
 
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
